@@ -2,15 +2,24 @@ import Plot from 'react-plotly.js'
 import { useApiData } from '../../common/hooks/useApiData'
 import { ChartCard } from '../../common/components/ChartCard'
 import { CHART_SLOT, useCategoricalColors } from '../../common/utils/chartColors'
+import type { ResolvedDateRange } from '../../common/utils/dateRange'
 import type { DemandPoint } from '../../common/types'
+
+interface DemandChartProps {
+  range: ResolvedDateRange
+}
 
 /**
  * GB national demand outturn: INDO (initial National Demand outturn) vs
  * ITSDO (initial Transmission System Demand outturn, which additionally
  * accounts for transmission losses, pumped storage, and interconnectors).
+ * Half-hourly for short ranges; resampled to a daily mean for longer ones.
  */
-export function DemandChart() {
-  const { data, error, isLoading } = useApiData<DemandPoint[]>('/api/dashboard/demand')
+export function DemandChart({ range }: DemandChartProps) {
+  const { data, error, isLoading } = useApiData<DemandPoint[]>(
+    `/api/dashboard/demand?start=${range.start}&end=${range.end}`,
+    range.isLive ? undefined : 0,
+  )
   const [nationalColor, transmissionColor] = useCategoricalColors([
     CHART_SLOT.blue,
     CHART_SLOT.violet,

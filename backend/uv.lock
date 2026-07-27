@@ -202,25 +202,6 @@ wheels = [
 ]
 
 [[package]]
-name = "elexonpy"
-version = "1.0.16"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "certifi" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "python-dateutil" },
-    { name = "requests" },
-    { name = "requests-mock" },
-    { name = "six" },
-    { name = "urllib3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d8/70/3eb60a7a0ad8e2a3ad0dd2416768436d0e7ad77c83125e0653173377c565/elexonpy-1.0.16.tar.gz", hash = "sha256:70c198315c0e3ba5521e78eaf236c02806eced301308bf4a8be2f8540e44bfb4", size = 230154, upload-time = "2025-01-26T20:43:40.326Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6f/32/34b134964974b7fef1f15029735df4d142bde8e20f7216d2da34e660a070/elexonpy-1.0.16-py3-none-any.whl", hash = "sha256:212dc8adad99d7aa1849639c85f0114881d293d9f7a79c5affceb47e4a456e78", size = 614489, upload-time = "2025-01-26T20:43:38.293Z" },
-]
-
-[[package]]
 name = "fastapi"
 version = "0.139.0"
 source = { registry = "https://pypi.org/simple" }
@@ -674,18 +655,6 @@ wheels = [
 ]
 
 [[package]]
-name = "requests-mock"
-version = "1.12.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/92/32/587625f91f9a0a3d84688bf9cfc4b2480a7e8ec327cefd0ff2ac891fd2cf/requests-mock-1.12.1.tar.gz", hash = "sha256:e9e12e333b525156e82a3c852f22016b9158220d2f47454de9cae8a77d371401", size = 60901, upload-time = "2024-03-29T03:54:29.446Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/97/ec/889fbc557727da0c34a33850950310240f2040f3b1955175fdb2b36a8910/requests_mock-1.12.1-py2.py3-none-any.whl", hash = "sha256:b1e37054004cdd5e56c84454cc7df12b25f90f382159087f4b6915aaeef39563", size = 27695, upload-time = "2024-03-29T03:54:27.64Z" },
-]
-
-[[package]]
 name = "ruff"
 version = "0.15.21"
 source = { registry = "https://pypi.org/simple" }
@@ -767,10 +736,10 @@ name = "uk-energy-data-backend"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "elexonpy" },
     { name = "fastapi" },
     { name = "pandas" },
     { name = "pydantic-settings" },
+    { name = "requests" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -784,10 +753,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "elexonpy", specifier = ">=1.0.16" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "pandas", specifier = ">=3.0.3" },
     { name = "pydantic-settings", specifier = ">=2.4" },
+    { name = "requests", specifier = ">=2.34.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
 

@@ -12,7 +12,7 @@ The project is organised as three self-contained tabs, each treated as its own s
 
 | Tab | What it does | Status |
 |---|---|---|
-| **Dashboard** | Live/historical UK grid data — e.g. imbalance price, system demand | Imbalance price, national demand, and generation mix wired up to live Elexon/BMRS data |
+| **Dashboard** | Live/historical UK grid data — e.g. imbalance price, system demand | Imbalance price, national demand, and generation mix, live from Elexon/BMRS, with a date-range picker from the last 24 hours back to March 2016 |
 | **Forecasting** | Energy price forecasting using quantile regression | Scaffolded — page and route exist, no model yet |
 | **VPP Optimisation** | Battery dispatch optimisation for a virtual power plant, driven by the forecasts | Scaffolded — page and route exist, no optimiser yet |
 
@@ -48,19 +48,23 @@ uv sync --all-groups
 uv run uvicorn app.main:app --reload   # http://localhost:8000
 ```
 
-The Dashboard tab needs the backend running — it fetches live imbalance price, demand, and
-generation mix data from Elexon's BMRS Insights API (see `backend/app/services/elexon_client.py`)
-via the endpoints under `/api/dashboard`, no API key required. The Forecasting and VPP tabs are
-still scaffolded, exposing only placeholder `/api/<tab>/ping` endpoints, ready to be filled in with
-real model logic.
+The Dashboard tab needs the backend running — it fetches imbalance price, demand, and generation
+mix data from Elexon's BMRS Insights API (see `backend/app/services/elexon_client.py`) over the
+range selected in its date-range control, via the endpoints under `/api/dashboard`, no API key
+required. The three metrics don't all support the same range: national demand and generation mix
+go back to `EARLIEST_AVAILABLE_DATE` (2016-03-01, the earliest date real data was found for either
+of them), but the imbalance price has no bulk/range endpoint at all, so it's capped at
+`IMBALANCE_PRICE_MAX_DAYS` (90) days regardless of what range is selected. The Forecasting and VPP
+tabs are still scaffolded, exposing only placeholder `/api/<tab>/ping` endpoints, ready to be
+filled in with real model logic.
 
 ## Tech stack
 
 - **Frontend** — React 19, TypeScript, Vite, React Router, Tailwind CSS, Plotly (`react-plotly.js`)
   for charts, Vitest + React Testing Library for tests, ESLint + Prettier for linting/formatting.
-- **Backend** — FastAPI, Pydantic Settings, [elexonpy](https://github.com/openclimatefix/Elexonpy)
-  for the Elexon BMRS Insights API, pandas for data shaping, managed with
-  [uv](https://docs.astral.sh/uv/), pytest for tests, Ruff for linting/formatting.
+- **Backend** — FastAPI, Pydantic Settings, `requests` for calling the Elexon BMRS Insights API
+  directly, pandas for data shaping/resampling, managed with [uv](https://docs.astral.sh/uv/),
+  pytest for tests, Ruff for linting/formatting.
 
 ## Guidelines this project follows
 
@@ -93,6 +97,7 @@ real model logic.
 
 - [x] Connect the Dashboard to a live data source (Elexon/BMRS) in place of mock data —
       imbalance price, national demand, and generation mix.
+- [x] Add a date-range picker to the Dashboard, from the last 24 hours back to March 2016.
 - [ ] Build the quantile regression model behind the Forecasting tab.
 - [ ] Build the VPP battery-dispatch optimiser, driven by the forecasting output.
 - [ ] Replace the remaining backend `/ping` placeholders (forecasting, VPP) with real endpoints as

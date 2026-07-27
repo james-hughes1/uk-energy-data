@@ -7,6 +7,8 @@ interface ChartCardProps {
   /** Set once data has been fetched at least once, even if a later refresh fails. */
   hasData: boolean
   error: Error | null
+  /** Optional small print next to the title, e.g. a range-limitation notice. */
+  note?: string
   children: ReactNode
 }
 
@@ -16,7 +18,7 @@ interface ChartCardProps {
  * A failed refresh keeps the previous chart on screen (with a small notice)
  * rather than flashing empty; only a failure with no prior data blocks render.
  */
-export function ChartCard({ title, isLoading, hasData, error, children }: ChartCardProps) {
+export function ChartCard({ title, isLoading, hasData, error, note, children }: ChartCardProps) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-2 flex items-center justify-between">
@@ -25,6 +27,9 @@ export function ChartCard({ title, isLoading, hasData, error, children }: ChartC
           <span className="text-xs text-red-600 dark:text-red-400">
             Couldn&apos;t refresh — showing last known data
           </span>
+        )}
+        {!error && note && (
+          <span className="text-xs text-slate-400 dark:text-slate-500">{note}</span>
         )}
       </div>
       {isLoading && (

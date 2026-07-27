@@ -11,10 +11,12 @@ interface ApiDataState<T> {
 }
 
 /**
- * Fetches `path` from the backend on mount and on a fixed interval, so
- * dashboard charts stay current with live grid data. Errors are captured
- * rather than thrown, so a single flaky request just leaves the last good
- * data on screen rather than crashing the page.
+ * Fetches `path` from the backend on mount and, if `refreshIntervalMs` is
+ * positive, on a fixed interval after that — so dashboard charts stay
+ * current with live grid data. Pass `0` to fetch once only, for a historical
+ * range that won't change. Errors are captured rather than thrown, so a
+ * single flaky request just leaves the last good data on screen rather than
+ * crashing the page.
  */
 export function useApiData<T>(
   path: string,
@@ -45,11 +47,11 @@ export function useApiData<T>(
     }
 
     load()
-    const intervalId = setInterval(load, refreshIntervalMs)
+    const intervalId = refreshIntervalMs > 0 ? setInterval(load, refreshIntervalMs) : undefined
 
     return () => {
       cancelled = true
-      clearInterval(intervalId)
+      if (intervalId) clearInterval(intervalId)
     }
   }, [path, refreshIntervalMs])
 
