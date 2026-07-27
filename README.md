@@ -12,7 +12,7 @@ The project is organised as three self-contained tabs, each treated as its own s
 
 | Tab | What it does | Status |
 |---|---|---|
-| **Dashboard** | Live/historical UK grid data — e.g. imbalance price, system demand | Imbalance price chart wired up with mock data; live feed not yet connected |
+| **Dashboard** | Live/historical UK grid data — e.g. imbalance price, system demand | Imbalance price, national demand, and generation mix wired up to live Elexon/BMRS data |
 | **Forecasting** | Energy price forecasting using quantile regression | Scaffolded — page and route exist, no model yet |
 | **VPP Optimisation** | Battery dispatch optimisation for a virtual power plant, driven by the forecasts | Scaffolded — page and route exist, no optimiser yet |
 
@@ -48,17 +48,19 @@ uv sync --all-groups
 uv run uvicorn app.main:app --reload   # http://localhost:8000
 ```
 
-With just the frontend running, the Dashboard tab renders against mock data
-(`frontend/src/dashboard/data/mockGridData.ts`) — no backend required to look around. The backend
-currently exposes only placeholder `/api/<tab>/ping` endpoints and `/health`, ready to be filled in
-with real data sources (e.g. Elexon/BMRS, National Grid ESO Data Portal) and model logic.
+The Dashboard tab needs the backend running — it fetches live imbalance price, demand, and
+generation mix data from Elexon's BMRS Insights API (see `backend/app/services/elexon_client.py`)
+via the endpoints under `/api/dashboard`, no API key required. The Forecasting and VPP tabs are
+still scaffolded, exposing only placeholder `/api/<tab>/ping` endpoints, ready to be filled in with
+real model logic.
 
 ## Tech stack
 
 - **Frontend** — React 19, TypeScript, Vite, React Router, Tailwind CSS, Plotly (`react-plotly.js`)
   for charts, Vitest + React Testing Library for tests, ESLint + Prettier for linting/formatting.
-- **Backend** — FastAPI, Pydantic Settings, managed with [uv](https://docs.astral.sh/uv/), pytest
-  for tests, Ruff for linting/formatting.
+- **Backend** — FastAPI, Pydantic Settings, [elexonpy](https://github.com/openclimatefix/Elexonpy)
+  for the Elexon BMRS Insights API, pandas for data shaping, managed with
+  [uv](https://docs.astral.sh/uv/), pytest for tests, Ruff for linting/formatting.
 
 ## Guidelines this project follows
 
@@ -89,8 +91,9 @@ with real data sources (e.g. Elexon/BMRS, National Grid ESO Data Portal) and mod
 
 ## Roadmap
 
-- [ ] Connect the Dashboard to a live data source (Elexon/BMRS or National Grid ESO) in place of
-      mock data.
+- [x] Connect the Dashboard to a live data source (Elexon/BMRS) in place of mock data —
+      imbalance price, national demand, and generation mix.
 - [ ] Build the quantile regression model behind the Forecasting tab.
 - [ ] Build the VPP battery-dispatch optimiser, driven by the forecasting output.
-- [ ] Replace backend `/ping` placeholders with real endpoints as each subproject comes online.
+- [ ] Replace the remaining backend `/ping` placeholders (forecasting, VPP) with real endpoints as
+      each subproject comes online.

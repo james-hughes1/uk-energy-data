@@ -20,8 +20,9 @@ uv sync --all-groups
 
 ## Structure
 
-- `app/core/` — shared configuration and utilities used by every subproject (e.g. `config.py`).
+- `app/core/` — shared configuration and utilities used by every subproject (e.g. `config.py`, `schema.py`).
 - `app/api/` — one router module per subproject/tab: `dashboard.py`, `forecasting.py`, `vpp.py`, plus `health.py` for the liveness check. Routers only depend on `app/core`, never on each other.
+- `app/services/` — clients for external data sources, e.g. `elexon_client.py` for Elexon's BMRS Insights API, used by the dashboard router.
 - `tests/` — pytest suite, mirrors the `app/` structure.
 
 ## Adding a new router

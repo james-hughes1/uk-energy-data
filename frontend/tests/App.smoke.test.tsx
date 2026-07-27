@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App'
 
 // Plotly renders to a real <canvas>, which jsdom can't back — stub it out
@@ -8,6 +8,15 @@ import { App } from '../src/App'
 vi.mock('react-plotly.js', () => ({
   default: () => <div data-testid="plot-stub" />,
 }))
+
+// The dashboard page fetches live grid data on mount — stub it out so this
+// smoke test only exercises routing/layout, not the network.
+beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => Promise.resolve(new Response(JSON.stringify([])))),
+  )
+})
 
 function renderAt(path: string) {
   return render(
