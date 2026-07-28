@@ -22,15 +22,19 @@ by probing the live API:
   it silently truncates results for older date ranges instead of erroring —
   an undocumented quirk, not something to build on. Instead, this module
   always fetches the reliable half-hourly endpoint (in `_DEMAND_CHUNK_DAYS`
-  chunks, its actual per-call limit) and, for ranges longer than a few days,
-  downsamples to a daily mean itself with pandas.
-- Generation actually does auto-downsample sensibly for long ranges (half-
-  hourly for short windows, hourly/daily as the range grows), so it's used
-  as-is, just chunked to its `_GENERATION_CHUNK_DAYS` per-call limit.
+  chunks, its actual per-call limit).
+- Generation does auto-downsample somewhat for long ranges, but
+  inconsistently across chunk boundaries, so it's chunked to its
+  `_GENERATION_CHUNK_DAYS` per-call limit and then resampled the same way
+  as the other two.
 
 Across all three, `EARLIEST_AVAILABLE_DATE` is the latest (i.e. most
 restrictive) start date at which real data was found for any of them, so
-an "all time" query returns a consistent window on every chart.
+an "all time" query returns a consistent window on every chart. And all
+three share `_resample_rule`: native resolution for short ranges, a daily
+mean beyond `_NATIVE_RESOLUTION_MAX_DAYS`, a weekly mean beyond
+`_WEEKLY_RESOLUTION_MIN_DAYS` — so a year-or-wider chart stays legible
+instead of being thousands of noisy points.
 """
 
 from __future__ import annotations
@@ -54,15 +58,19 @@ IMBALANCE_PRICE_MAX_DAYS = 90
 
 # /demand/outturn's actual per-call range limit.
 _DEMAND_CHUNK_DAYS = 28
-# Beyond this many days, demand is resampled to a daily mean rather than
-# returned half-hourly, to keep chart point counts sane.
-_DEMAND_HALF_HOURLY_MAX_DAYS = 3
 
 # /generation/actual/per-type's actual per-call range limit (367 days, with
 # a one-day safety margin).
 _GENERATION_CHUNK_DAYS = 360
 
 _CONCURRENT_WORKERS = 20
+
+# Chart resolution, based on how wide the selected range is. Ranges above
+# `_NATIVE_RESOLUTION_MAX_DAYS` are resampled to a daily mean, and above
+# `_WEEKLY_RESOLUTION_MIN_DAYS` to a weekly mean, so a multi-year chart isn't
+# thousands of noisy half-hourly points. All three endpoints share this.
+_NATIVE_RESOLUTION_MAX_DAYS = 3
+_WEEKLY_RESOLUTION_MIN_DAYS = 366
 
 
 def _get(path: str, params: dict) -> dict:
@@ -89,8 +97,23 @@ def _fetch_concurrently(fetch_one, items: list) -> list:
     return [row for rows in results for row in rows]
 
 
+def _resample_rule(start: dt.date, end: dt.date) -> str | None:
+    """Pandas resample rule for a range this wide, or None to keep native resolution."""
+    days = (end - start).days
+    if days > _WEEKLY_RESOLUTION_MIN_DAYS:
+        return "1W"
+    if days > _NATIVE_RESOLUTION_MAX_DAYS:
+        return "1D"
+    return None
+
+
 def get_imbalance_price_history(start: dt.date, end: dt.date) -> list[dict]:
-    """Settlement system buy/sell prices (the GB imbalance price) over [start, end]."""
+    """Settlement system buy/sell prices (the GB imbalance price) over [start, end].
+
+    Resampled to a daily or weekly mean for wider ranges, same as demand and
+    generation (see `_resample_rule`); the settlement period number stops
+    meaning anything once periods are averaged together, so it's dropped then.
+    """
     effective_start = max(start, end - dt.timedelta(days=IMBALANCE_PRICE_MAX_DAYS - 1))
     dates = [
         effective_start + dt.timedelta(days=i) for i in range((end - effective_start).days + 1)
@@ -105,9 +128,33 @@ def get_imbalance_price_history(start: dt.date, end: dt.date) -> list[dict]:
         return []
 
     frame = pd.DataFrame.from_records(records).sort_values("startTime")
+    frame["startTime"] = pd.to_datetime(frame["startTime"])
+
+    rule = _resample_rule(effective_start, end)
+    if rule:
+        frame = (
+            frame.set_index("startTime")[
+                ["systemSellPrice", "systemBuyPrice", "netImbalanceVolume"]
+            ]
+            .resample(rule)
+            .mean()
+            .dropna(how="all")
+            .reset_index()
+        )
+        return [
+            {
+                "timestamp": pd.Timestamp(row.startTime).isoformat(),
+                "settlement_period": None,
+                "system_sell_price": row.systemSellPrice,
+                "system_buy_price": row.systemBuyPrice,
+                "net_imbalance_volume": row.netImbalanceVolume,
+            }
+            for row in frame.itertuples()
+        ]
+
     return [
         {
-            "timestamp": row.startTime,
+            "timestamp": pd.Timestamp(row.startTime).isoformat(),
             "settlement_period": int(row.settlementPeriod),
             "system_sell_price": row.systemSellPrice,
             "system_buy_price": row.systemBuyPrice,
@@ -120,8 +167,8 @@ def get_imbalance_price_history(start: dt.date, end: dt.date) -> list[dict]:
 def get_demand_history(start: dt.date, end: dt.date) -> list[dict]:
     """National demand outturn (INDO/ITSDO) over [start, end].
 
-    Half-hourly for short ranges; resampled to a daily mean (keeping both
-    series) for anything longer than a few days.
+    Half-hourly for short ranges; resampled to a daily or weekly mean
+    (keeping both series) for wider ones — see `_resample_rule`.
     """
     chunks = _date_chunks(start, end, _DEMAND_CHUNK_DAYS)
 
@@ -143,12 +190,13 @@ def get_demand_history(start: dt.date, end: dt.date) -> list[dict]:
     frame = pd.DataFrame.from_records(records).sort_values("startTime")
     frame["startTime"] = pd.to_datetime(frame["startTime"])
 
-    if (end - start).days > _DEMAND_HALF_HOURLY_MAX_DAYS:
+    rule = _resample_rule(start, end)
+    if rule:
         frame = (
             frame.set_index("startTime")[
                 ["initialDemandOutturn", "initialTransmissionSystemDemandOutturn"]
             ]
-            .resample("1D")
+            .resample(rule)
             .mean()
             .dropna(how="all")
             .reset_index()
@@ -200,10 +248,13 @@ def _lagging_data_cutoff() -> str | None:
 def get_generation_mix_history(start: dt.date, end: dt.date) -> list[dict]:
     """Actual generation output over [start, end], broken down by fuel type (PSR type).
 
-    Elexon auto-downsamples this endpoint's resolution to the requested
-    range (half-hourly/hourly/daily), so no resampling is needed here. Any
-    trailing settlement periods not yet published for the lagging fuel types
-    (see `_NEAR_REAL_TIME_FUEL_TYPES`) are dropped rather than shown as zero.
+    Elexon auto-downsamples this endpoint's resolution somewhat already, but
+    inconsistently across chunk boundaries, so it's resampled again here to
+    a daily/weekly mean for wider ranges (see `_resample_rule`) for a
+    consistent resolution throughout. Any trailing settlement periods not
+    yet published for the lagging fuel types (see `_NEAR_REAL_TIME_FUEL_TYPES`)
+    are dropped — before resampling, so they don't drag down the average —
+    rather than shown as zero.
     """
     chunks = _date_chunks(start, end, _GENERATION_CHUNK_DAYS)
 
@@ -229,11 +280,32 @@ def get_generation_mix_history(start: dt.date, end: dt.date) -> list[dict]:
     ]
 
     cutoff = _lagging_data_cutoff() if end >= dt.date.today() - dt.timedelta(days=1) else None
-    if cutoff is None:
+    if cutoff is not None:
+        records = [
+            r
+            for r in records
+            if r["fuel_type"] in _NEAR_REAL_TIME_FUEL_TYPES or r["timestamp"] <= cutoff
+        ]
+
+    rule = _resample_rule(start, end)
+    if not rule or not records:
         return records
 
+    frame = pd.DataFrame.from_records(records)
+    frame["timestamp"] = pd.to_datetime(frame["timestamp"])
+    resampled = (
+        frame.set_index("timestamp")
+        .groupby("fuel_type")["quantity_mw"]
+        .resample(rule)
+        .mean()
+        .dropna()
+        .reset_index()
+    )
     return [
-        r
-        for r in records
-        if r["fuel_type"] in _NEAR_REAL_TIME_FUEL_TYPES or r["timestamp"] <= cutoff
+        {
+            "timestamp": row.timestamp.isoformat(),
+            "fuel_type": row.fuel_type,
+            "quantity_mw": row.quantity_mw,
+        }
+        for row in resampled.itertuples()
     ]

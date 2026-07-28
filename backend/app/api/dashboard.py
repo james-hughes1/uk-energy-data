@@ -17,10 +17,14 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 class ImbalancePricePoint(CamelModel):
-    """One settlement period's system prices, the cost of the grid being out of balance."""
+    """One settlement period's system prices, the cost of the grid being out of balance.
+
+    `settlement_period` is None once resampled to a daily/weekly mean over
+    wider ranges — the period number isn't meaningful once averaged together.
+    """
 
     timestamp: dt.datetime
-    settlement_period: int
+    settlement_period: int | None
     system_sell_price: float
     system_buy_price: float
     net_imbalance_volume: float

@@ -4,10 +4,14 @@ export interface TimeSeriesPoint {
   value: number
 }
 
-/** One settlement period's system prices — the cost of the grid being out of balance. */
+/**
+ * One settlement period's system prices — the cost of the grid being out of
+ * balance. `settlementPeriod` is null once resampled to a daily/weekly mean
+ * over wider ranges, where the period number isn't meaningful any more.
+ */
 export interface ImbalancePricePoint {
   timestamp: string
-  settlementPeriod: number
+  settlementPeriod: number | null
   systemSellPrice: number
   systemBuyPrice: number
   netImbalanceVolume: number

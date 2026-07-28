@@ -19,6 +19,15 @@ def test_date_chunks_returns_single_chunk_when_range_fits() -> None:
     assert chunks == [(dt.date(2024, 1, 1), dt.date(2024, 1, 1))]
 
 
+def test_resample_rule_picks_native_daily_or_weekly_by_range_width() -> None:
+    start = dt.date(2024, 1, 1)
+
+    assert elexon_client._resample_rule(start, start + dt.timedelta(days=3)) is None
+    assert elexon_client._resample_rule(start, start + dt.timedelta(days=4)) == "1D"
+    assert elexon_client._resample_rule(start, start + dt.timedelta(days=366)) == "1D"
+    assert elexon_client._resample_rule(start, start + dt.timedelta(days=367)) == "1W"
+
+
 def test_imbalance_price_history_clamps_to_max_days(monkeypatch) -> None:
     calls: list[str] = []
 
@@ -35,6 +44,42 @@ def test_imbalance_price_history_clamps_to_max_days(monkeypatch) -> None:
     # One call per day in the window, capped at IMBALANCE_PRICE_MAX_DAYS
     # regardless of how much wider the requested range was.
     assert len(calls) == elexon_client.IMBALANCE_PRICE_MAX_DAYS
+
+
+def test_imbalance_price_history_resamples_to_daily_mean_for_wide_ranges(monkeypatch) -> None:
+    def fake_get(path: str, params: dict) -> dict:
+        settlement_date = path.rsplit("/", 1)[-1]
+        day_start = dt.datetime.fromisoformat(settlement_date).replace(tzinfo=dt.UTC)
+        return {
+            "data": [
+                {
+                    "startTime": day_start.isoformat().replace("+00:00", "Z"),
+                    "settlementPeriod": 1,
+                    "systemSellPrice": 50.0,
+                    "systemBuyPrice": 50.0,
+                    "netImbalanceVolume": 10.0,
+                },
+                {
+                    "startTime": (day_start + dt.timedelta(hours=12))
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                    "settlementPeriod": 25,
+                    "systemSellPrice": 70.0,
+                    "systemBuyPrice": 70.0,
+                    "netImbalanceVolume": -10.0,
+                },
+            ]
+        }
+
+    monkeypatch.setattr(elexon_client, "_get", fake_get)
+
+    end = dt.date(2024, 1, 10)
+    start = end - dt.timedelta(days=9)  # 10-day range: above the daily threshold
+    result = elexon_client.get_imbalance_price_history(start, end)
+
+    assert len(result) == 10  # one row per day, not one per settlement period
+    assert result[0]["settlement_period"] is None  # no longer meaningful once averaged
+    assert result[0]["system_sell_price"] == 60.0  # mean of 50 and 70
 
 
 def test_demand_history_stays_half_hourly_for_short_ranges(monkeypatch) -> None:
@@ -172,6 +217,39 @@ def test_generation_mix_history_skips_cutoff_check_for_purely_historical_ranges(
 
     # Only the main chunk fetch fires; no extra call to find a lagging cutoff.
     assert len(calls) == 1
+
+
+def test_generation_mix_history_resamples_per_fuel_type_for_wide_ranges(monkeypatch) -> None:
+    def fake_get(path: str, params: dict) -> dict:
+        chunk_from = dt.datetime.fromisoformat(params["from"])
+        chunk_to = dt.datetime.fromisoformat(params["to"])
+        periods = []
+        t = chunk_from
+        while t < chunk_to:
+            periods.append(
+                {
+                    "startTime": t.isoformat().replace("+00:00", "Z"),
+                    "data": [
+                        {"psrType": "Fossil Gas", "quantity": 100.0},
+                        {"psrType": "Wind Onshore", "quantity": 10.0},
+                    ],
+                }
+            )
+            t += dt.timedelta(hours=12)
+        return {"data": periods}
+
+    monkeypatch.setattr(elexon_client, "_get", fake_get)
+
+    end = dt.date(2024, 1, 10)
+    start = end - dt.timedelta(days=9)  # 10-day range: above the daily threshold
+    result = elexon_client.get_generation_mix_history(start, end)
+
+    gas_rows = [r for r in result if r["fuel_type"] == "Fossil Gas"]
+    wind_rows = [r for r in result if r["fuel_type"] == "Wind Onshore"]
+    # One row per fuel type per day, not one per half-hourly reading.
+    assert len(gas_rows) == 10
+    assert len(wind_rows) == 10
+    assert gas_rows[0]["quantity_mw"] == 100.0
 
 
 def test_generation_mix_history_chunks_long_ranges(monkeypatch) -> None:
