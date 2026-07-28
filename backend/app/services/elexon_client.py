@@ -35,6 +35,15 @@ three share `_resample_rule`: native resolution for short ranges, a daily
 mean beyond `_NATIVE_RESOLUTION_MAX_DAYS`, a weekly mean beyond
 `_WEEKLY_RESOLUTION_MIN_DAYS` — so a year-or-wider chart stays legible
 instead of being thousands of noisy points.
+
+A fourth source, day-ahead prices, was added the same way: probed live and
+chunked to its actual `_MARKET_INDEX_CHUNK_DAYS` per-call limit. Its market
+index data (MID) reports one row per index data provider (APX, N2EX) per
+settlement period; N2EX has reported zero volume for every period checked
+(recent and historical), so a naive average would be pulled towards zero
+half the time. Rows are combined with a volume weighted average instead,
+which both handles that (a zero-volume row can't move the price) and is the
+methodologically correct way to combine two venues' prices anyway.
 """
 
 from __future__ import annotations
@@ -62,6 +71,9 @@ _DEMAND_CHUNK_DAYS = 28
 # /generation/actual/per-type's actual per-call range limit (367 days, with
 # a one-day safety margin).
 _GENERATION_CHUNK_DAYS = 360
+
+# /balancing/pricing/market-index's actual per-call range limit.
+_MARKET_INDEX_CHUNK_DAYS = 7
 
 _CONCURRENT_WORKERS = 20
 
@@ -308,4 +320,113 @@ def get_generation_mix_history(start: dt.date, end: dt.date) -> list[dict]:
             "quantity_mw": row.quantity_mw,
         }
         for row in resampled.itertuples()
+    ]
+
+
+def _fetch_day_ahead_records(start: dt.date, end: dt.date) -> list[dict]:
+    """Raw market index data (MID) rows over [start, end]: one per index data
+    provider (APX, N2EX) per settlement period, chunked to the endpoint's
+    per-call range limit."""
+    chunks = _date_chunks(start, end, _MARKET_INDEX_CHUNK_DAYS)
+
+    def fetch_chunk(chunk: tuple[dt.date, dt.date]) -> list[dict]:
+        chunk_start, chunk_end = chunk
+        chunk_from = dt.datetime.combine(chunk_start, dt.time.min, tzinfo=dt.UTC)
+        chunk_to = dt.datetime.combine(chunk_end + dt.timedelta(days=1), dt.time.min, tzinfo=dt.UTC)
+        body = _get(
+            "/balancing/pricing/market-index",
+            {"from": chunk_from.isoformat(), "to": chunk_to.isoformat()},
+        )
+        return body["data"]
+
+    return _fetch_concurrently(fetch_chunk, chunks)
+
+
+def _volume_weighted_price_by_period(records: list[dict]) -> pd.DataFrame:
+    """Combines per-provider MID rows into one volume weighted price per
+    settlement period, dropping the zero-volume rows a quiet provider
+    (historically N2EX) reports rather than letting them drag the average
+    towards zero."""
+    frame = pd.DataFrame.from_records(records)
+    frame = frame[frame["volume"] > 0]
+    if frame.empty:
+        return frame
+
+    frame["startTime"] = pd.to_datetime(frame["startTime"])
+    frame["weightedPrice"] = frame["price"] * frame["volume"]
+    return (
+        frame.groupby(["startTime", "settlementPeriod"])
+        .agg(weightedPrice=("weightedPrice", "sum"), volume=("volume", "sum"))
+        .assign(price=lambda f: f.weightedPrice / f.volume)
+        .reset_index()
+        .sort_values("startTime")
+    )
+
+
+def get_day_ahead_price_history(start: dt.date, end: dt.date) -> list[dict]:
+    """GB day-ahead price over [start, end]: the volume weighted average of
+    the market index data (MID) providers (APX, N2EX) for each settlement
+    period — the closest free proxy for the day-ahead auction clearing
+    price, since Elexon doesn't publish the exchanges' own auction results.
+
+    Resampled to a daily or weekly mean for wider ranges, same as the other
+    three data sources (see `_resample_rule`).
+    """
+    records = _fetch_day_ahead_records(start, end)
+    if not records:
+        return []
+
+    frame = _volume_weighted_price_by_period(records)
+    if frame.empty:
+        return []
+
+    rule = _resample_rule(start, end)
+    if rule:
+        frame = frame.set_index("startTime")[["price"]].resample(rule).mean().dropna().reset_index()
+        return [
+            {
+                "timestamp": pd.Timestamp(row.startTime).isoformat(),
+                "settlement_period": None,
+                "price": row.price,
+            }
+            for row in frame.itertuples()
+        ]
+
+    return [
+        {
+            "timestamp": pd.Timestamp(row.startTime).isoformat(),
+            "settlement_period": int(row.settlementPeriod),
+            "price": row.price,
+        }
+        for row in frame.itertuples()
+    ]
+
+
+def get_day_ahead_price_profile(start: dt.date, end: dt.date) -> list[dict]:
+    """Average day-ahead price by settlement period (1-48) across [start, end]
+    — the typical daily shape (cheap overnight, an evening peak) that a VPP
+    schedules its charge/discharge cycle around. `std_price` is the spread
+    across the days in range, a rough read on how reliable that shape is.
+    """
+    records = _fetch_day_ahead_records(start, end)
+    if not records:
+        return []
+
+    frame = _volume_weighted_price_by_period(records)
+    if frame.empty:
+        return []
+
+    stats = (
+        frame.groupby("settlementPeriod")["price"]
+        .agg(mean_price="mean", std_price="std", sample_count="count")
+        .reset_index()
+    )
+    return [
+        {
+            "settlement_period": int(row.settlementPeriod),
+            "mean_price": row.mean_price,
+            "std_price": 0.0 if pd.isna(row.std_price) else row.std_price,
+            "sample_count": int(row.sample_count),
+        }
+        for row in stats.itertuples()
     ]

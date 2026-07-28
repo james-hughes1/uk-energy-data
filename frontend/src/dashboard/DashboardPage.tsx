@@ -6,6 +6,8 @@ import { resolveDateRangeSelection, type DateRangeSelection } from '../common/ut
 import { ImbalancePriceChart } from './components/ImbalancePriceChart'
 import { DemandChart } from './components/DemandChart'
 import { GenerationMixChart } from './components/GenerationMixChart'
+import { DayAheadPriceChart } from './components/DayAheadPriceChart'
+import { DayAheadPriceProfileChart } from './components/DayAheadPriceProfileChart'
 
 export function DashboardPage() {
   const [rangeSelection, setRangeSelection] = useState<DateRangeSelection>({
@@ -17,9 +19,24 @@ export function DashboardPage() {
   return (
     <PageLayout
       title="Live grid dashboard"
-      description="Live UK power grid data — imbalance price, demand, and generation mix, from Elexon's BMRS Insights API."
+      description="Live UK power grid data — day-ahead and imbalance prices, demand, and generation mix, from Elexon's BMRS Insights API."
     >
       <DateRangeControl selection={rangeSelection} onChange={setRangeSelection} />
+
+      <ExplainerPanel title="What is the day-ahead price?">
+        <p>
+          Most GB electricity is bought and sold in the <strong>day-ahead market</strong>: for each
+          half-hourly period of tomorrow, generators and suppliers submit bids/offers that clear in
+          an auction today, producing a single price per period. This chart shows that price — the
+          volume-weighted average across the exchange feeds Elexon publishes (APX and N2EX), the
+          closest free proxy for the auction result. It&apos;s a much bigger, more predictable
+          signal than the imbalance price below, and it&apos;s the one a virtual power plant (VPP)
+          mainly schedules against: charge the battery in cheap periods, sell it back in expensive
+          ones.
+        </p>
+      </ExplainerPanel>
+      <DayAheadPriceChart range={range} />
+      <DayAheadPriceProfileChart range={range} />
 
       <ExplainerPanel title="What is the imbalance price?">
         <p>

@@ -30,3 +30,28 @@ export interface GenerationMixPoint {
   fuelType: string
   quantityMw: number
 }
+
+/**
+ * One settlement period's day-ahead price — the volume weighted average
+ * across market index data providers (APX/N2EX), the closest free proxy for
+ * GB's day-ahead auction clearing price. `settlementPeriod` is null once
+ * resampled to a daily/weekly mean over wider ranges, same as
+ * `ImbalancePricePoint`.
+ */
+export interface DayAheadPricePoint {
+  timestamp: string
+  settlementPeriod: number | null
+  price: number
+}
+
+/**
+ * Average day-ahead price for one settlement period (1-48), aggregated
+ * across a whole date range — the typical daily price shape a VPP schedules
+ * its charge/discharge cycle around.
+ */
+export interface DayAheadPriceProfilePoint {
+  settlementPeriod: number
+  meanPrice: number
+  stdPrice: number
+  sampleCount: number
+}

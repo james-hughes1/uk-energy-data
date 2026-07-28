@@ -275,3 +275,122 @@ def test_generation_mix_history_chunks_long_ranges(monkeypatch) -> None:
     assert len(calls) == 3
     assert len(result) == 3
     assert all(row["fuel_type"] == "Wind Onshore" for row in result)
+
+
+def _fake_mid_row(
+    start_time: str, settlement_period: int, provider: str, price: float, volume: float
+) -> dict:
+    return {
+        "startTime": start_time,
+        "dataProvider": provider,
+        "settlementPeriod": settlement_period,
+        "price": price,
+        "volume": volume,
+    }
+
+
+def test_day_ahead_price_history_ignores_zero_volume_providers(monkeypatch) -> None:
+    # N2EX reports a row for every period but, in practice, always with zero
+    # volume; it must not drag the average towards zero.
+    def fake_get(path: str, params: dict) -> dict:
+        return {
+            "data": [
+                _fake_mid_row("2024-01-01T00:00:00Z", 1, "APXMIDP", 100.0, 50.0),
+                _fake_mid_row("2024-01-01T00:00:00Z", 1, "N2EXMIDP", 0.0, 0.0),
+            ]
+        }
+
+    monkeypatch.setattr(elexon_client, "_get", fake_get)
+
+    result = elexon_client.get_day_ahead_price_history(dt.date(2024, 1, 1), dt.date(2024, 1, 1))
+
+    assert len(result) == 1
+    assert result[0]["price"] == 100.0
+    assert result[0]["settlement_period"] == 1
+
+
+def test_day_ahead_price_history_volume_weights_multiple_providers(monkeypatch) -> None:
+    def fake_get(path: str, params: dict) -> dict:
+        return {
+            "data": [
+                _fake_mid_row("2024-01-01T00:00:00Z", 1, "APXMIDP", 100.0, 30.0),
+                _fake_mid_row("2024-01-01T00:00:00Z", 1, "N2EXMIDP", 200.0, 10.0),
+            ]
+        }
+
+    monkeypatch.setattr(elexon_client, "_get", fake_get)
+
+    result = elexon_client.get_day_ahead_price_history(dt.date(2024, 1, 1), dt.date(2024, 1, 1))
+
+    # (100*30 + 200*10) / 40 = 125
+    assert result[0]["price"] == 125.0
+
+
+def test_day_ahead_price_history_resamples_to_daily_mean_for_wide_ranges(monkeypatch) -> None:
+    def fake_get(path: str, params: dict) -> dict:
+        chunk_from = dt.datetime.fromisoformat(params["from"])
+        chunk_to = dt.datetime.fromisoformat(params["to"])
+        rows = []
+        t = chunk_from
+        while t < chunk_to:
+            start_time = t.isoformat().replace("+00:00", "Z")
+            rows.append(_fake_mid_row(start_time, 1, "APXMIDP", 60.0, 10.0))
+            t += dt.timedelta(days=1)
+        return {"data": rows}
+
+    monkeypatch.setattr(elexon_client, "_get", fake_get)
+
+    end = dt.date(2024, 1, 10)
+    start = end - dt.timedelta(days=9)  # 10-day range: above the daily threshold
+    result = elexon_client.get_day_ahead_price_history(start, end)
+
+    assert len(result) == 10  # one row per day
+    assert result[0]["settlement_period"] is None
+    assert result[0]["price"] == 60.0
+
+
+def test_day_ahead_price_history_chunks_long_ranges(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def fake_get(path: str, params: dict) -> dict:
+        calls.append(params)
+        return {"data": [_fake_mid_row(params["from"], 1, "APXMIDP", 60.0, 10.0)]}
+
+    monkeypatch.setattr(elexon_client, "_get", fake_get)
+
+    start = dt.date(2024, 1, 1)
+    end = start + dt.timedelta(days=20)  # spans three 7-day chunks
+    result = elexon_client.get_day_ahead_price_history(start, end)
+
+    assert len(calls) == 3
+    assert len(result) == 3
+
+
+def test_day_ahead_price_profile_aggregates_by_settlement_period(monkeypatch) -> None:
+    def fake_get(path: str, params: dict) -> dict:
+        return {
+            "data": [
+                _fake_mid_row("2024-01-01T00:00:00Z", 1, "APXMIDP", 50.0, 10.0),
+                _fake_mid_row("2024-01-02T00:00:00Z", 1, "APXMIDP", 70.0, 10.0),
+                _fake_mid_row("2024-01-01T00:30:00Z", 2, "APXMIDP", 200.0, 10.0),
+                _fake_mid_row("2024-01-02T00:30:00Z", 2, "APXMIDP", 200.0, 10.0),
+            ]
+        }
+
+    monkeypatch.setattr(elexon_client, "_get", fake_get)
+
+    result = elexon_client.get_day_ahead_price_profile(dt.date(2024, 1, 1), dt.date(2024, 1, 2))
+
+    by_period = {row["settlement_period"]: row for row in result}
+    assert by_period[1]["mean_price"] == 60.0  # mean of 50 and 70
+    assert by_period[1]["sample_count"] == 2
+    assert by_period[1]["std_price"] > 0
+    assert by_period[2]["std_price"] == 0.0  # identical prices both days
+
+
+def test_day_ahead_price_profile_returns_empty_for_no_data(monkeypatch) -> None:
+    monkeypatch.setattr(elexon_client, "_get", lambda path, params: {"data": []})
+
+    result = elexon_client.get_day_ahead_price_profile(dt.date(2024, 1, 1), dt.date(2024, 1, 1))
+
+    assert result == []

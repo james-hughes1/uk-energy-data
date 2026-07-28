@@ -2,8 +2,9 @@
 
 Pulls grid data over a caller-supplied date range from Elexon's BMRS
 Insights API (see `app.services.elexon_client`) so the dashboard tab can
-show trends in the imbalance price, national demand, and the generation
-mix by fuel type — from the last 24 hours back to `EARLIEST_AVAILABLE_DATE`.
+show trends in the imbalance price, national demand, the generation mix
+by fuel type, and the day-ahead price — from the last 24 hours back to
+`EARLIEST_AVAILABLE_DATE`.
 """
 
 import datetime as dt
@@ -44,6 +45,31 @@ class GenerationMixPoint(CamelModel):
     timestamp: dt.datetime
     fuel_type: str
     quantity_mw: float
+
+
+class DayAheadPricePoint(CamelModel):
+    """One settlement period's day-ahead price: the volume weighted average
+    across market index data providers (APX/N2EX), the closest free proxy
+    for GB's day-ahead auction clearing price.
+
+    `settlement_period` is None once resampled to a daily/weekly mean over
+    wider ranges, same as `ImbalancePricePoint`.
+    """
+
+    timestamp: dt.datetime
+    settlement_period: int | None
+    price: float
+
+
+class DayAheadPriceProfilePoint(CamelModel):
+    """Average day-ahead price for one settlement period (1-48), aggregated
+    across a whole date range — the typical daily price shape a VPP
+    schedules its charge/discharge cycle around."""
+
+    settlement_period: int
+    mean_price: float
+    std_price: float
+    sample_count: int
 
 
 def _resolve_range(start: dt.date | None, end: dt.date | None) -> tuple[dt.date, dt.date]:
@@ -91,5 +117,29 @@ def get_generation_mix(
     resolved_start, resolved_end = _resolve_range(start, end)
     try:
         return elexon_client.get_generation_mix_history(resolved_start, resolved_end)
+    except Exception as exc:  # noqa: BLE001 - any upstream failure maps to 502
+        raise HTTPException(status_code=502, detail="Failed to fetch data from Elexon") from exc
+
+
+@router.get("/day-ahead-price", response_model=list[DayAheadPricePoint])
+def get_day_ahead_price(
+    start: dt.date | None = None,
+    end: dt.date | None = None,
+) -> list[dict]:
+    resolved_start, resolved_end = _resolve_range(start, end)
+    try:
+        return elexon_client.get_day_ahead_price_history(resolved_start, resolved_end)
+    except Exception as exc:  # noqa: BLE001 - any upstream failure maps to 502
+        raise HTTPException(status_code=502, detail="Failed to fetch data from Elexon") from exc
+
+
+@router.get("/day-ahead-price-profile", response_model=list[DayAheadPriceProfilePoint])
+def get_day_ahead_price_profile(
+    start: dt.date | None = None,
+    end: dt.date | None = None,
+) -> list[dict]:
+    resolved_start, resolved_end = _resolve_range(start, end)
+    try:
+        return elexon_client.get_day_ahead_price_profile(resolved_start, resolved_end)
     except Exception as exc:  # noqa: BLE001 - any upstream failure maps to 502
         raise HTTPException(status_code=502, detail="Failed to fetch data from Elexon") from exc
