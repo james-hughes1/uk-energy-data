@@ -277,6 +277,33 @@ def test_generation_mix_history_chunks_long_ranges(monkeypatch) -> None:
     assert all(row["fuel_type"] == "Wind Onshore" for row in result)
 
 
+def test_day_ahead_price_training_history_never_resamples_even_for_wide_ranges(
+    monkeypatch,
+) -> None:
+    def fake_get(path: str, params: dict) -> dict:
+        chunk_from = dt.datetime.fromisoformat(params["from"])
+        chunk_to = dt.datetime.fromisoformat(params["to"])
+        rows = []
+        t = chunk_from
+        while t < chunk_to:
+            start_time = t.isoformat().replace("+00:00", "Z")
+            rows.append(_fake_mid_row(start_time, 1, "APXMIDP", 60.0, 10.0))
+            t += dt.timedelta(days=1)
+        return {"data": rows}
+
+    monkeypatch.setattr(elexon_client, "_get", fake_get)
+
+    end = dt.date(2024, 1, 10)
+    start = end - dt.timedelta(days=9)  # 10-day range: above the dashboard's daily threshold
+    result = elexon_client.get_day_ahead_price_training_history(start, end)
+
+    # One row per day, i.e. still native resolution -- unlike
+    # get_day_ahead_price_history, which would have resampled this to a
+    # single daily-mean row for a range this wide.
+    assert len(result) == 10
+    assert all(row["settlement_period"] == 1 for row in result)
+
+
 def _fake_mid_row(
     start_time: str, settlement_period: int, provider: str, price: float, volume: float
 ) -> dict:

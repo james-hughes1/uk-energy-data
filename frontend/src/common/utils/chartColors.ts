@@ -66,3 +66,11 @@ export function useCategoricalColors(slots: number[]): string[] {
   const palette = prefersDark ? CATEGORICAL_DARK : CATEGORICAL_LIGHT
   return slots.map((slot) => palette[slot])
 }
+
+/** Renders a palette hex colour as `rgba(...)` at the given opacity, for translucent fills (e.g. a quantile band). */
+export function withAlpha(hex: string, alpha: number): string {
+  const r = Number.parseInt(hex.slice(1, 3), 16)
+  const g = Number.parseInt(hex.slice(3, 5), 16)
+  const b = Number.parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}

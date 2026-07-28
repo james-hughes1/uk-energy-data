@@ -44,6 +44,9 @@ settlement period; N2EX has reported zero volume for every period checked
 half the time. Rows are combined with a volume weighted average instead,
 which both handles that (a zero-volume row can't move the price) and is the
 methodologically correct way to combine two venues' prices anyway.
+`get_day_ahead_price_training_history` reuses that same pipeline but skips the
+resampling step entirely, since the forecasting subproject's lag features need
+native per-settlement-period rows even over a multi-year window.
 """
 
 from __future__ import annotations
@@ -392,6 +395,12 @@ def get_day_ahead_price_history(start: dt.date, end: dt.date) -> list[dict]:
             for row in frame.itertuples()
         ]
 
+    return _native_day_ahead_rows(frame)
+
+
+def _native_day_ahead_rows(frame: pd.DataFrame) -> list[dict]:
+    """Shapes a volume weighted price frame (see `_volume_weighted_price_by_period`)
+    into native, unresampled per-settlement-period rows."""
     return [
         {
             "timestamp": pd.Timestamp(row.startTime).isoformat(),
@@ -400,6 +409,27 @@ def get_day_ahead_price_history(start: dt.date, end: dt.date) -> list[dict]:
         }
         for row in frame.itertuples()
     ]
+
+
+def get_day_ahead_price_training_history(start: dt.date, end: dt.date) -> list[dict]:
+    """Native half-hourly GB day-ahead price over [start, end], regardless of how
+    wide the range is — unlike `get_day_ahead_price_history`, which resamples to a
+    daily/weekly mean for chart legibility beyond `_NATIVE_RESOLUTION_MAX_DAYS`.
+
+    Used by the forecasting subproject to build lag/rolling features, which need
+    real per-settlement-period granularity even across a multi-year training
+    window; a resampled series would collapse away the exact signal (the shape of
+    the day) those features are meant to capture.
+    """
+    records = _fetch_day_ahead_records(start, end)
+    if not records:
+        return []
+
+    frame = _volume_weighted_price_by_period(records)
+    if frame.empty:
+        return []
+
+    return _native_day_ahead_rows(frame)
 
 
 def get_day_ahead_price_profile(start: dt.date, end: dt.date) -> list[dict]:

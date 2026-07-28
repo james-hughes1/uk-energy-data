@@ -2,19 +2,12 @@ import Plot from 'react-plotly.js'
 import { useApiData } from '../../common/hooks/useApiData'
 import { ChartCard } from '../../common/components/ChartCard'
 import { CHART_SLOT, useCategoricalColor } from '../../common/utils/chartColors'
+import { periodToTimeLabel } from '../../common/utils/settlementPeriod'
 import type { ResolvedDateRange } from '../../common/utils/dateRange'
 import type { DayAheadPriceProfilePoint } from '../../common/types'
 
 interface DayAheadPriceProfileChartProps {
   range: ResolvedDateRange
-}
-
-/** Settlement period 1 covers 00:00-00:30, period 2 covers 00:30-01:00, and so on. */
-function periodToTimeLabel(settlementPeriod: number): string {
-  const minutesFromMidnight = (settlementPeriod - 1) * 30
-  const hours = Math.floor(minutesFromMidnight / 60) % 24
-  const minutes = minutesFromMidnight % 60
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
 }
 
 /**

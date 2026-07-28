@@ -55,3 +55,61 @@ export interface DayAheadPriceProfilePoint {
   stdPrice: number
   sampleCount: number
 }
+
+/** One settlement period's predicted day-ahead price band. */
+export interface QuantilePricePoint {
+  settlementPeriod: number
+  p10: number
+  p50: number
+  p90: number
+}
+
+/**
+ * Tomorrow's predicted day-ahead price, as a quantile band per settlement
+ * period. `points` may have fewer than the expected number of periods if
+ * some don't yet have enough price history to build their features.
+ */
+export interface DayAheadForecastResponse {
+  forecastDate: string
+  generatedAt: string
+  quantiles: number[]
+  points: QuantilePricePoint[]
+}
+
+export interface ModelFeatureDescription {
+  name: string
+  description: string
+}
+
+/** Describes how the currently-cached forecasting model was built. */
+export interface ModelInfoResponse {
+  algorithm: string
+  quantiles: number[]
+  features: ModelFeatureDescription[]
+  trainingWindowStart: string
+  trainingWindowEnd: string
+  trainingRowCount: number
+  trainedAt: string
+  hyperparameters: Record<string, number>
+}
+
+export interface QuantileBacktestMetric {
+  quantile: number
+  pinballLoss: number
+  nominalCoverage: number
+  empiricalCoverage: number
+}
+
+/**
+ * Out-of-sample model quality on a holdout window, per quantile, plus a
+ * head-to-head comparison against the naive persistence baseline (last
+ * week's price) at the median.
+ */
+export interface BacktestResponse {
+  holdoutStart: string
+  holdoutEnd: string
+  holdoutRowCount: number
+  quantileMetrics: QuantileBacktestMetric[]
+  persistenceBaselinePinballLossP50: number
+  modelPinballLossP50: number
+}
